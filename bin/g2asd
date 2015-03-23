@@ -3,74 +3,120 @@
 $LOAD_PATH << File.expand_path("../lib", File.dirname(__FILE__))
 
 require 'g2asd'
+require 'optparse'
+require 'ostruct'
 
-if ARGV.length != 1
-  STDERR.puts "Specify the URL you'd like to GET as the first argument"
-  exit 1
-end
+class CommandLine
+  attr_reader :token_storage, :options
 
-if !ARGV[0].start_with?("/v2/")
-  STDERR.puts "The URL that you're requesting must start with '/v2/'"
-  exit 1
-end
+  class Storage < ServiceDesk::FileTokenStorage
+    attr_accessor :client_id, :client_secret, :redirect_uri
 
+    def initialize
+      super
 
-class Storage < ServiceDesk::FileTokenStorage
-  attr_accessor :client_id, :client_secret, :redirect_uri
+      if @configuration
+        @client_id = @configuration["client_id"]
+        @client_secret = @configuration["client_secret"]
+        @redirect_uri = @configuration["redirect_uri"]
+      end
+    end
+
+    private
+
+    def additional_fields
+      super.merge(
+        "client_id" => client_id,
+        "client_secret" => client_secret,
+        "redirect_uri" => redirect_uri
+      )
+    end
+  end
 
   def initialize
-    super
+    @options = OpenStruct.new(batch: false)
+    @token_storage = Storage.new
+  end
 
-    if @configuration
-      @client_id = @configuration["client_id"]
-      @client_secret = @configuration["client_secret"]
-      @redirect_uri = @configuration["redirect_uri"]
+  def call(argv)
+    parse_options(argv)
+
+    url = argv.first
+
+    if !url.start_with?("/v2/")
+      STDERR.puts "The URL that you're requesting must start with '/v2/'"
+      exit 1
     end
+
+    capture_and_save_api_details if token_storage.client_id.nil?
+
+    client = configure_service_desk_client
+
+    if token_storage.refresh_token.nil?
+      assert_no_batch!
+      ServiceDesk::Login.new(client).call
+    end
+
+    token = client.token_from_refresh_token
+    puts token.get(url)
   end
 
   private
 
-  def additional_fields
-    super.merge(
-      "client_id" => client_id,
-      "client_secret" => client_secret,
-      "redirect_uri" => redirect_uri
-    )
+  def parse_options(argv)
+    parser = OptionParser.new do |opts|
+      opts.banner = "Usage: g2asd [options] /v2/somepath"
+
+      opts.on("-b", "--batch", "Run in batch mode; exit if user input required") do |value|
+        options.batch = value
+      end
+    end
+
+    parser.parse!(argv)
+
+    if argv.length != 1
+      STDERR.puts parser.help
+      exit 1
+    end
+  end
+
+  def configure_service_desk_client
+    ServiceDesk::Client.configure do |config|
+      config.client_id         token_storage.client_id
+      config.client_secret     token_storage.client_secret
+      config.redirect_uri      token_storage.redirect_uri
+      config.refresh_token     token_storage.refresh_token
+      config.token_storage     token_storage
+    end
+
+    ServiceDesk::Client.new
+  end
+
+  def capture_and_save_api_details
+    assert_no_batch!
+
+    puts "To get started, enter your GoToAssist Sprint Desk API version 2 OAuth details:\n\n"
+
+    print "Client ID: "
+    token_storage.client_id = STDIN.gets.chomp
+
+    print "Client secret: "
+    token_storage.client_secret = STDIN.gets.chomp
+
+    begin
+      print "Redirect URI (must start with http://localhost...): "
+      token_storage.redirect_uri = STDIN.gets.chomp
+    end until token_storage.redirect_uri =~ %r(\Ahttp://localhost)
+
+    token_storage.update!
+  end
+
+  def assert_no_batch!
+    if options.batch
+      STDERR.puts "User input required and batch mode enabled; exiting.  Please re-run without batch mode."
+      exit 2
+    end
   end
 end
 
-token_storage = Storage.new
-
-if token_storage.client_id.nil?
-  puts "To get started, enter your GoToAssist Sprint Desk API version 2 OAuth details:\n\n"
-
-  print "Client ID: "
-  token_storage.client_id = gets.chomp
-
-  print "Client secret: "
-  token_storage.client_secret = gets.chomp
-
-  begin
-    print "Redirect URI (must start with http://localhost...): "
-    token_storage.redirect_uri = gets.chomp
-  end until token_storage.redirect_uri =~ %r(\Ahttp://localhost)
-
-  token_storage.update!
-end
-
-ServiceDesk::Client.configure do |config|
-  config.client_id         token_storage.client_id
-  config.client_secret     token_storage.client_secret
-  config.redirect_uri      token_storage.redirect_uri
-  config.refresh_token     token_storage.refresh_token
-  config.token_storage     token_storage
-end
-
-client = ServiceDesk::Client.new
-
-if token_storage.refresh_token.nil?
-  ServiceDesk::Login.new(client).call
-end
-
-token = client.token_from_refresh_token
-puts token.get(ARGV[0])
+CommandLine.new.call(ARGV)
