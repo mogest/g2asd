@@ -27,7 +27,12 @@ class ServiceDesk::Login
   private
 
   def open_url_in_local_browser(url)
-    system "open", url
+    case RUBY_PLATFORM
+    when /darwin/
+      system "open", url
+    else
+      puts "Please copy and paste the following URL into your web browser:\n  #{url}"
+    end
   end
 
   def start_web_server_then_request_token
