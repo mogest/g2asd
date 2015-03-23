@@ -62,7 +62,7 @@ class ServiceDesk::Token
       error = ServiceDesk::ERROR_CODE_CLASS_MAPPING.fetch(api_data["code"], ServiceDesk::Error)
       raise error, "Service Desk raised error #{api_data["code"]}: #{api_data["error"]}"
 
-    elsif api_data["objects"].nil?
+    elsif api_data["objects"].nil? && api_data["object"].nil?
       raise ServiceDesk::Error, "Service Desk didn't return valid data: #{api_data.inspect}"
     end
 
