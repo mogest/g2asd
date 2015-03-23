@@ -31,6 +31,7 @@ class ServiceDesk::FileTokenStorage
 
   private
 
+  # If you'd like to store additional fields in the YAML file, overload this method.
   def additional_fields
     {}
   end

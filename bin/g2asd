@@ -9,6 +9,12 @@ if ARGV.length != 1
   exit 1
 end
 
+if !ARGV[0].start_with?("/v2/")
+  STDERR.puts "The URL that you're requesting must start with '/v2/'"
+  exit 1
+end
+
+
 class Storage < ServiceDesk::FileTokenStorage
   attr_accessor :client_id, :client_secret, :redirect_uri
 
@@ -56,8 +62,6 @@ ServiceDesk::Client.configure do |config|
   config.client_id         token_storage.client_id
   config.client_secret     token_storage.client_secret
   config.redirect_uri      token_storage.redirect_uri
-  config.api_host          "https://deskapi.gotoassist.com"
-  config.authenticate_path "/v2/authenticate/oauth2"
   config.refresh_token     token_storage.refresh_token
   config.token_storage     token_storage
 end
